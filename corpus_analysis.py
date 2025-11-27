@@ -1,111 +1,58 @@
 import streamlit as st
 import spacy
-import pandas as pd
+from spacy import displacy
 import matplotlib.pyplot as plt
-from wordcloud import WordCloud
 from collections import Counter
-from nltk.util import ngrams
-import nltk
+import pandas as pd
+import re
 
-# Download NLTK data
-nltk.download('punkt')
-
-# Load spaCy model
+# Load English NLP model
 nlp = spacy.load("en_core_web_sm")
 
+st.set_page_config(page_title="Corpus Analysis Tool", layout="wide")
 st.title("📊 Corpus Analysis Tool")
-st.write("Upload a text or CSV corpus and perform NLP analysis")
 
-# File upload
-uploaded_file = st.file_uploader("Upload a text file (.txt) or CSV (.csv)", type=["txt", "csv"])
+# Input options
+option = st.radio("Upload text file or paste text:", ("Upload", "Paste Text"))
 
 text = ""
+if option == "Upload":
+    file = st.file_uploader("Upload .txt file", type=["txt"])
+    if file:
+        text = file.read().decode("utf-8")
+else:
+    text = st.text_area("Paste your corpus text here:", height=200)
 
-# Load file content
-if uploaded_file:
-    if uploaded_file.name.endswith(".txt"):
-        text = uploaded_file.read().decode("utf-8")
-
-    elif uploaded_file.name.endswith(".csv"):
-        df = pd.read_csv(uploaded_file)
-        if "text" in df.columns:
-            text = " ".join(df["text"].astype(str))
-        else:
-            st.error("CSV must contain a 'text' column.")
-            st.stop()
-
-    st.success("File uploaded successfully!")
-
-    # Process text using spaCy
+if st.button("Analyze") and text.strip():
     doc = nlp(text)
 
-    st.header("📌 Text Statistics")
-    words = [token.text for token in doc if token.is_alpha]
-    sentences = list(doc.sents)
+    # 📌 Statistical Analysis
+    tokens = [token.text.lower() for token in doc if token.is_alpha]
+    word_freq = Counter(tokens)
+    vocab_size = len(word_freq)
 
-    st.write("**Total Sentences:**", len(sentences))
-    st.write("**Total Words:**", len(words))
-    st.write("**Unique Words:**", len(set(words)))
-    st.write("**Lexical Diversity:**", round(len(set(words)) / len(words), 4))
+    st.subheader("🧮 Statistical Analysis")
+    st.write(f"Total Words: **{len(tokens)}**")
+    st.write(f"Vocabulary Size: **{vocab_size}**")
+    st.write(f"Total Sentences: **{len(list(doc.sents))}**")
 
+    # Show top words
+    st.write("🔝 Most Common Words")
+    common_df = pd.DataFrame(word_freq.most_common(10), columns=["Word", "Frequency"])
+    st.dataframe(common_df)
 
-    # POS Tag Distribution
-    st.header("📌 POS Tag Distribution")
+    # 📌 POS Tag Distribution
+    st.subheader("📌 POS Tag Distribution")
     pos_counts = Counter([token.pos_ for token in doc])
 
-    fig, ax = plt.subplots()
-    ax.bar(pos_counts.keys(), pos_counts.values())
-    ax.set_title("POS Tag Distribution")
-    st.pyplot(fig)
+    pos_df = pd.DataFrame(pos_counts.items(), columns=["POS", "Count"])
+    st.bar_chart(pos_df.set_index("POS"))
 
+    # 📌 Named Entity Recognition
+    st.subheader("🏷 Named Entity Visualization")
 
-    # Named Entity Recognition
-    st.header("📌 Named Entity Recognition (NER)")
-    ents = [(ent.text, ent.label_) for ent in doc.ents]
-    ent_df = pd.DataFrame(ents, columns=["Entity", "Label"])
-    st.dataframe(ent_df)
+    html = displacy.render(doc, style="ent", jupyter=False)
+    st.markdown(html, unsafe_allow_html=True)
 
-
-    # Word Cloud
-    st.header("📌 Word Cloud")
-    wc = WordCloud(width=800, height=400).generate(text)
-    fig, ax = plt.subplots()
-    ax.imshow(wc, interpolation="bilinear")
-    ax.axis("off")
-    st.pyplot(fig)
-
-
-    # Word Frequency
-    st.header("📌 Top 20 Most Frequent Words")
-    freq = Counter(words).most_common(20)
-    freq_df = pd.DataFrame(freq, columns=["Word", "Frequency"])
-    st.table(freq_df)
-
-
-    # N-grams
-    st.header("📌 Bigrams (Top 20)")
-    bigrams = Counter(ngrams(words, 2)).most_common(20)
-    bigram_df = pd.DataFrame(bigrams, columns=["Bigram", "Count"])
-    st.table(bigram_df)
-
-
-    # KWIC Search
-    st.header("📌 KWIC (Keyword in Context) Search")
-    keyword = st.text_input("Enter keyword")
-
-    if keyword:
-        tokens = text.split()
-        window = 5
-        results = []
-
-        for i, w in enumerate(tokens):
-            if w.lower() == keyword.lower():
-                left = " ".join(tokens[max(0, i-window):i])
-                right = " ".join(tokens[i+1:i+1+window])
-                results.append([left, w, right])
-
-        if results:
-            st.write(f"### Results for '{keyword}':")
-            st.table(pd.DataFrame(results, columns=["Left Context", "Keyword", "Right Context"]))
-        else:
-            st.write("No occurrences found.")
+else:
+    st.info("Upload or paste text then click Analyze!")
